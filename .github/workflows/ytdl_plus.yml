@@ -1,4 +1,4 @@
-name: دانلودر یوتیوب پیشرفته
+name: release دانلودر یوتیوب پیشرفته
 
 on:
   workflow_dispatch:
