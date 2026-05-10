@@ -1,6 +1,5 @@
 name: دانلودر یوتیوب پیشرفته
 
-
 on:
   workflow_dispatch:
     inputs:
@@ -8,7 +7,6 @@ on:
         description: 'YouTube URL (video or playlist)'
         required: true
         type: string
-
       output_format:
         description: 'Output format'
         required: true
@@ -18,7 +16,6 @@ on:
           - mp3 (audio only)
           - best (auto)
         default: 'mp4 (video)'
-
       video_quality:
         description: 'Max video resolution to download'
         required: false
@@ -32,7 +29,6 @@ on:
           - '144'
           - 'best'
         default: '1080 (Full HD)'
-
       audio_quality:
         description: 'Audio bitrate — applies to MP3 downloads'
         required: false
@@ -43,7 +39,6 @@ on:
           - '128'
           - '64'
         default: '192'
-
       video_codec:
         description: 'Preferred video codec (ignored for audio-only)'
         required: false
@@ -54,7 +49,6 @@ on:
           - 'vp9'
           - 'av1'
         default: 'any (auto)'
-
       concurrent_fragments:
         description: 'Parallel download fragments — more = faster but higher bandwidth'
         required: false
@@ -65,35 +59,29 @@ on:
           - '16'
           - '1'
         default: '4'
-
       sponsorblock:
         description: 'Skip sponsor / intro / outro segments via SponsorBlock'
         required: false
         type: boolean
         default: false
-
       embed_chapters:
         description: 'Embed chapter markers into the output file'
         required: false
         type: boolean
         default: true
-
       write_description:
         description: 'Save video description as a .description text file'
         required: false
         type: boolean
         default: false
-
       trim_start:
         description: 'Trim start timestamp (e.g. 0:33 or 1:22:10) — leave empty to skip'
         required: false
         type: string
-
       trim_end:
         description: 'Trim end timestamp (e.g. 1:22 or 2:00:00) — leave empty to skip'
         required: false
         type: string
-
       playlist_items:
         description: |
           Playlist items to download:
@@ -103,44 +91,32 @@ on:
           1,3,5 = specific items
         required: false
         type: string
-
       cookies:
         description: |
           Cookie string (Netscape format) to bypass geo/age restrictions.
           Safer alternative: store as a repo secret named YT_COOKIES — used automatically.
         required: false
         type: string
-
       download_subtitles:
         description: 'Download subtitle files'
         required: false
         type: boolean
         default: false
-
       subtitle_langs:
         description: 'Subtitle languages, comma-separated (e.g. en,fa)'
         required: false
         type: string
         default: 'en'
-
       embed_metadata:
         description: 'Embed thumbnail and metadata into the output file'
         required: false
         type: boolean
         default: true
-
-      max_part_mb:
-        description: 'Maximum part size in MB for splitting (0 = no split)'
-        required: false
-        type: number
-        default: 90
-
       output_folder:
         description: 'Folder to store downloads (relative to repo root)'
         required: false
         type: string
         default: 'downloads'
-
       extra_args:
         description: 'Extra yt-dlp arguments (advanced users)'
         required: false
@@ -149,15 +125,17 @@ on:
 permissions:
   contents: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   fetch-and-store:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-
     steps:
       - name: Clone repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -208,7 +186,7 @@ jobs:
             COOKIE_ARGS="--cookies /tmp/cookies.txt"
           fi
 
-          # Extract numeric height from quality string (e.g. "2160 (4K)" -> "2160")
+          # Extract numeric height from quality string
           QUALITY_NUM=$(echo "$VIDEO_QUALITY" | grep -o '[0-9]*' | head -1)
 
           # Codec filter
@@ -303,26 +281,15 @@ jobs:
           INPUT_COOKIES: ${{ github.event.inputs.cookies }}
           SECRET_YT_COOKIES: ${{ secrets.YT_COOKIES }}
 
-      - name: Split oversized files (optional)
-        run: |
-          OUTPUT_FOLDER="${{ github.event.inputs.output_folder }}"
-          THRESH_MB=${{ github.event.inputs.max_part_mb }}
-          THRESH_BYTES=$((THRESH_MB * 1024 * 1024))
+      - name: Generate Release Tag
+        id: tag
+        run: echo "RELEASE_TAG=download-$(date +'%Y%m%d%H%M%S')" >> $GITHUB_ENV
 
-          for f in "$OUTPUT_FOLDER"/*; do
-            [ -f "$f" ] || continue
-            fs=$(stat -c%s "$f")
-            fname=$(basename "$f")
-            if [ "$THRESH_BYTES" -gt 0 ] && [ "$fs" -gt "$THRESH_BYTES" ]; then
-              zip -j -s "${THRESH_MB}m" "$OUTPUT_FOLDER/${fname}.zip" "$f"
-              rm "$f"
-            fi
-          done
-
-      - name: Push changes to repository
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add "${{ github.event.inputs.output_folder }}/"
-          git commit -m "Download media [skip ci]" || echo "Nothing to commit"
-          git push
+      - name: Upload to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: "Media Download: ${{ env.RELEASE_TAG }}"
+          files: ${{ github.event.inputs.output_folder }}/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
