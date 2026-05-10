@@ -1,4 +1,4 @@
-name: "دانلودر لینک مستقیم"
+name: "++ دانلودر لینک مستقیم"
 
 on:
   workflow_dispatch:
@@ -15,28 +15,31 @@ on:
         type: string
 
       max_part_mb:
-        description: "Maximum size per part (MB)"
+        description: "Max part size in MB (Empty = Auto: 90 for Repo, 1900 for Release)"
         required: false
-        default: "90"
+        default: ""
         type: string
 
       upload_method:
         description: "Upload Method"
         required: true
-        default: "repository"
+        default: "release"
         type: choice
         options:
-          - repository
           - release
+          - repository
 
       release_tag:
-        description: "Release Tag"
+        description: "Release Tag (Leave empty for auto-generation)"
         required: false
         default: ""
         type: string
 
 permissions:
   contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   direct-download:
@@ -74,16 +77,30 @@ jobs:
           echo "filename=$FILENAME" >> "$GITHUB_OUTPUT"
           echo "filepath=temp_dl/$FILENAME" >> "$GITHUB_OUTPUT"
 
-      - name: Create Split Archive
+      - name: Create Split Archive & Cleanup Original
         id: archive
         shell: bash
         run: |
           FILEPATH="${{ steps.download.outputs.filepath }}"
           PASS="${{ github.event.inputs.zip_password }}"
           THRESH_MB="${{ github.event.inputs.max_part_mb }}"
+          UPLOAD_METHOD="${{ github.event.inputs.upload_method }}"
 
-          if [[ -z "$THRESH_MB" || "$THRESH_MB" -le 0 || "$THRESH_MB" -gt 1900 ]]; then
-            THRESH_MB=1800
+          # Auto-size logic based on upload method
+          if [[ -z "$THRESH_MB" ]]; then
+            if [ "$UPLOAD_METHOD" == "release" ]; then
+              THRESH_MB=1900
+            else
+              THRESH_MB=90
+            fi
+          fi
+
+          # Safety limits to prevent failures
+          if [ "$UPLOAD_METHOD" == "repository" ] && [ "$THRESH_MB" -gt 90 ]; then
+            THRESH_MB=90
+          fi
+          if [ "$THRESH_MB" -gt 1900 ]; then
+            THRESH_MB=1900
           fi
 
           BASENAME=$(basename "$FILEPATH")
@@ -101,6 +118,9 @@ jobs:
           if [ -f "${ARCHIVE_BASE}.7z.001" ] && [ ! -f "${ARCHIVE_BASE}.7z.002" ]; then
             mv "${ARCHIVE_BASE}.7z.001" "${ARCHIVE_BASE}.7z"
           fi
+
+          # CRITICAL: Delete original file so it does not get uploaded alongside the zip
+          rm "$BASENAME"
 
           echo "archive_name=${ARCHIVE_BASE}.7z" >> "$GITHUB_OUTPUT"
 
@@ -134,7 +154,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.release_tag != '' && github.event.inputs.release_tag || format('direct-{0}', github.run_number) }}
-          name: Direct Download Release
+          name: "Direct Download: ${{ steps.download.outputs.filename }}"
           body: |
             Direct download completed.
 
